@@ -10,7 +10,7 @@ services:
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: demo
+      POSTGRES_DB: root_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -24,8 +24,10 @@ services:
     depends_on:
       - postgres
     environment:
-      MONGO_URI: "mongodb://mongodb:27017/demo"
-      PG_URI: "postgresql://user:password@postgres:5432/demo"
+      MONGO_URI: "mongodb://mongodb:27017/tdrive"
+      PG_URI: "postgresql://user:password@postgres:5432/tdrive"
+      PG_ADMIN_URI: "postgresql://user:password@postgres:5432/root_db"
+      PG_DB: "tdrive"
     networks:
       - app_network
 
