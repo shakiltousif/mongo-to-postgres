@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: demo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+    command: ["postgres", "-c", "listen_addresses=*"]
+
+  sync-app:
+    build: .
+    container_name: sync-app
+    restart: always
+    depends_on:
+      - postgres
+      - mongodb
+    environment:
+      MONGO_URI: "mongodb://mongodb:27017/demo"
+      PG_URI: "postgresql://user:password@postgres:5432/demo"
+    networks:
+      - app_network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  app_network:
+    driver: bridge
