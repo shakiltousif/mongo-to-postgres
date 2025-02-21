@@ -23,7 +23,6 @@ services:
     restart: always
     depends_on:
       - postgres
-      - mongodb
     environment:
       MONGO_URI: "mongodb://mongodb:27017/demo"
       PG_URI: "postgresql://user:password@postgres:5432/demo"
