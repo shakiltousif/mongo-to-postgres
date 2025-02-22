@@ -75,6 +75,9 @@ async function createPGTables() {
 
 
             // const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
+
+            const alterTableQuery = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
+
             if (key.toLowerCase() === "id") {
                 // Ensure id columns are converted to TEXT in existing tables
                 const alterIdColumnQuery = `ALTER TABLE ${tableName} ALTER COLUMN "${key}" TYPE TEXT USING "${key}"::TEXT;`;
@@ -87,9 +90,6 @@ async function createPGTables() {
             }
             await pgClient.query(alterTableQuery);
 
-            // const alterTableQuery = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
-
-            // await pgClient.query(alterTableQuery);
             console.log(`✅ Added missing column: ${key} in ${collection}`);
         }
     }
