@@ -7,7 +7,7 @@ async function getMongoCollections() {
     }
 
     const collections = await mongoDB.db.listCollections({}, { nameOnly: true }).toArray();
-    console.log("✅ MongoDB Collections:", collections.map(col => col.name));
+    // console.log("✅ MongoDB Collections:", collections.map(col => col.name));
     return collections.map(col => col.name);
 }
 
@@ -25,7 +25,7 @@ async function createPGTables() {
         // Fetch one sample document to detect fields
         let sampleDoc = await model.findOne().lean();
         if (!sampleDoc) {
-            console.log(`⚠️ Collection "${collection}" is empty. Creating table with default structure.`);
+            // console.log(`⚠️ Collection "${collection}" is empty. Creating table with default structure.`);
             sampleDoc = {}; // Create an empty object to trigger table creation
             continue;
         }
@@ -99,14 +99,14 @@ async function createPGTables() {
                 const alterIdColumnQuery = `ALTER TABLE ${tableName} ALTER COLUMN "${key}" TYPE TEXT USING "${key}"::TEXT;`;
                 try {
                     await pgClient.query(alterIdColumnQuery);
-                    console.log(`✅ Converted "id" column to TEXT in ${tableName}`);
+                    // console.log(`✅ Converted "id" column to TEXT in ${tableName}`);
                 } catch (alterError) {
                     console.warn(`⚠️ Could not alter "id" column in ${tableName}:`, alterError.message);
                 }
             }
             await pgClient.query(alterTableQuery);
 
-            console.log(`✅ Added missing column: ${key} in ${collection}`);
+            // console.log(`✅ Added missing column: ${key} in ${collection}`);
         }
     }
 }
@@ -187,20 +187,20 @@ async function migrateInitialData() {
                 SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
             `;
 
-            console.log(`🔍 Inserting data into table "${collection}"`);
-            console.log("Columns:", columns);
-            console.log("Values:", sanitizedValues);
+            // console.log(`🔍 Inserting data into table "${collection}"`);
+            // console.log("Columns:", columns);
+            // console.log("Values:", sanitizedValues);
             await pgClient.query(insertQuery, sanitizedValues);
         }
 
-        console.log(`✅ Data migrated: ${collection} (${documents.length} records)`);
+        // console.log(`✅ Data migrated: ${collection} (${documents.length} records)`);
     }
 }
 
 
 async function pollForChanges() {
     setInterval(async () => {
-        console.log("🔄 Checking for changes...");
+        // console.log("🔄 Checking for changes...");
 
         const collections = await getMongoCollections(); // Fetch collections dynamically
 
@@ -273,14 +273,15 @@ async function pollForChanges() {
                     SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
                 `;
 
-                console.log(`🔍 Inserting data into table "${collection}"`);
-                console.log("Columns:", columns);
-                console.log("Values:", sanitizedValues);
+                // console.log(`🔍 Inserting data into table "${collection}"`);
+                // console.log("Columns:", columns);
+                // console.log("Values:", sanitizedValues);
                 await pgClient.query(insertQuery, sanitizedValues);
+                console.log(`✅ Data inserted: ${collection} (${sanitizedValues.length} records)`);
             }
         }
 
-        console.log("✅ Sync complete");
+        // console.log("✅ Sync complete");
 
     }, 5000);  // Check for updates every 5 seconds
 }
