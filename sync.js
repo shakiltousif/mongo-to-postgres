@@ -15,6 +15,9 @@ async function createPGTables() {
     const collections = await getMongoCollections();
 
     for (const collection of collections) {
+        // Sanitize table name (convert to lowercase & quote it)
+        const tableName = `"${collection.toLowerCase()}"`;
+
         let model;
         try {
             model = mongoose.model(collection);
@@ -28,7 +31,7 @@ async function createPGTables() {
 
         // Ensure base table exists
         let createTableQuery = `
-            CREATE TABLE IF NOT EXISTS ${collection} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 id SERIAL PRIMARY KEY,
                 mongo_id TEXT UNIQUE
             );
@@ -38,7 +41,7 @@ async function createPGTables() {
         // Get existing columns in PostgreSQL
         const existingColumnsRes = await pgClient.query(`
             SELECT column_name FROM information_schema.columns
-            WHERE table_name = '${collection}';
+            WHERE table_name = ${tableName};
         `);
         const existingColumns = existingColumnsRes.rows.map(row => row.column_name);
 
@@ -50,12 +53,13 @@ async function createPGTables() {
                 typeof value === "boolean" ? "BOOLEAN" :
                     "TEXT"; // Default to TEXT
 
-            const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
+            const alterTableQuery = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
             await pgClient.query(alterTableQuery);
-            console.log(`✅ Added missing column: ${key} in ${collection}`);
+            console.log(`✅ Added missing column: ${key} in ${tableName}`);
         }
     }
 }
+
 
 
 
@@ -63,25 +67,29 @@ async function migrateInitialData() {
     const collections = await getMongoCollections();
 
     for (const collection of collections) {
+        // Sanitize table name (convert to lowercase & quote it)
+        const tableName = `"${collection.toLowerCase()}"`;
+
         let model;
         try {
-            model = mongoose.model(collection); // Check if model already exists
+            model = mongoose.model(collection);
         } catch (error) {
             model = mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
         }
 
         const documents = await model.find().lean();
+        if (documents.length === 0) continue; // Skip empty collections
 
         for (const doc of documents) {
             const mongoId = doc._id.toString();
-            delete doc._id; // Remove _id to avoid duplicate fields
+            delete doc._id;
 
-            // Construct INSERT query
+            // Prepare query dynamically
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
             const values = [mongoId, ...Object.values(doc)];
 
             const insertQuery = `
-                INSERT INTO ${collection} (${columns.join(", ")})
+                INSERT INTO ${tableName} (${columns.join(", ")})
                 VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
                 ON CONFLICT (mongo_id) DO UPDATE
                 SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
@@ -95,6 +103,7 @@ async function migrateInitialData() {
 }
 
 
+
 async function pollForChanges() {
     const collections = await getMongoCollections();
 
@@ -102,6 +111,9 @@ async function pollForChanges() {
         console.log("🔄 Checking for changes...");
 
         for (const collection of collections) {
+            // Sanitize table name (convert to lowercase & quote it)
+            const tableName = `"${collection.toLowerCase()}"`;
+
             let model;
             try {
                 model = mongoose.model(collection);
@@ -121,7 +133,7 @@ async function pollForChanges() {
 
                 // Construct insert query
                 const insertQuery = `
-                    INSERT INTO ${collection} (${columns.join(", ")})
+                    INSERT INTO ${tableName} (${columns.join(", ")})
                     VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
                     ON CONFLICT (mongo_id) DO UPDATE
                     SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
@@ -135,6 +147,7 @@ async function pollForChanges() {
 
     }, 5000);  // Check for updates every 5 seconds
 }
+
 
 
 
