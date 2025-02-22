@@ -39,3 +39,5 @@ volumes:
 networks:
   app_network:
     driver: bridge
+  mongo_network:
+    external: true
