@@ -56,9 +56,19 @@ async function createPGTables() {
         for (const [key, value] of Object.entries(sampleDoc)) {
             if (key === "_id" || existingColumns.includes(key)) continue; // Skip _id & existing columns
 
-            let columnType = typeof value === "number" ? "NUMERIC" :
-                typeof value === "boolean" ? "BOOLEAN" :
-                    "TEXT"; // Default to TEXT
+            // let columnType = typeof value === "number" ? "NUMERIC" :
+            //     typeof value === "boolean" ? "BOOLEAN" :
+            //         "TEXT"; // Default to TEXT
+
+            let columnType;
+            if (typeof value === "number") {
+                columnType = Number.isInteger(value) ? "INTEGER" : "NUMERIC";
+            } else if (typeof value === "boolean") {
+                columnType = "BOOLEAN";
+            } else {
+                columnType = "TEXT"; // Default to TEXT for unknown types
+            }
+
 
             // const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
             const alterTableQuery = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
@@ -90,7 +100,19 @@ async function migrateInitialData() {
 
             // Construct INSERT query
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
-            const values = [mongoId, ...Object.values(doc)];
+            // const values = [mongoId, ...Object.values(doc)];
+            const sanitizedValues = [mongoId, ...Object.values(doc).map(value => {
+                if (typeof value === "number") {
+                    return Number.isInteger(value) ? parseInt(value, 10) : parseFloat(value);
+                } else if (typeof value === "boolean") {
+                    return value; // Keep booleans as is
+                } else if (value instanceof Date) {
+                    return value.toISOString(); // Convert Date to ISO string
+                } else {
+                    return String(value); // Convert everything else to string
+                }
+            })];
+
 
             // const insertQuery = `
             //     INSERT INTO ${collection} (${columns.join(", ")})
@@ -107,7 +129,7 @@ async function migrateInitialData() {
             `;
 
 
-            await pgClient.query(insertQuery, values);
+            await pgClient.query(insertQuery, sanitizedValues);
         }
 
         console.log(`✅ Data migrated: ${collection} (${documents.length} records)`);
@@ -137,7 +159,19 @@ async function pollForChanges() {
 
                 // Prepare column names and values dynamically
                 const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
-                const values = [mongoId, ...Object.values(doc)];
+                // const values = [mongoId, ...Object.values(doc)];
+                const sanitizedValues = [mongoId, ...Object.values(doc).map(value => {
+                    if (typeof value === "number") {
+                        return Number.isInteger(value) ? parseInt(value, 10) : parseFloat(value);
+                    } else if (typeof value === "boolean") {
+                        return value;
+                    } else if (value instanceof Date) {
+                        return value.toISOString();
+                    } else {
+                        return String(value);
+                    }
+                })];
+
 
                 // Construct insert query
                 // const insertQuery = `
@@ -155,7 +189,7 @@ async function pollForChanges() {
                 `;
 
 
-                await pgClient.query(insertQuery, values);
+                await pgClient.query(insertQuery, sanitizedValues);
             }
         }
 
