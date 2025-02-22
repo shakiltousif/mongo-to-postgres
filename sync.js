@@ -61,10 +61,12 @@ async function createPGTables() {
             //         "TEXT"; // Default to TEXT
 
             let columnType;
-            if (key.toLowerCase() === "id") {
-                columnType = "TEXT"; // Ensure all "id" fields are TEXT (Fix for UUIDs)
-            } else if (typeof value === "number") {
-                columnType = Number.isInteger(value) && value < Number.MAX_SAFE_INTEGER ? "INTEGER" : "BIGINT";
+            if (typeof value === "number") {
+                if (Number.isInteger(value)) {
+                    columnType = value > 2147483647 ? "BIGINT" : "INTEGER"; // Use BIGINT if the number is too large
+                } else {
+                    columnType = "NUMERIC"; // Float values
+                }
             } else if (typeof value === "boolean") {
                 columnType = "BOOLEAN";
             } else {
@@ -118,10 +120,8 @@ async function migrateInitialData() {
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
             // const values = [mongoId, ...Object.values(doc)];
             const sanitizedValues = [mongoId, ...Object.entries(doc).map(([key, value]) => {
-                if (key.toLowerCase() === "id") {
-                    return String(value); // Ensure "id" is always a string (Fix for UUIDs)
-                } else if (typeof value === "number") {
-                    return Number.isInteger(value) && value < Number.MAX_SAFE_INTEGER ? parseInt(value, 10) : parseFloat(value);
+                if (typeof value === "number") {
+                    return Number.isInteger(value) && value > 2147483647 ? BigInt(value) : value;
                 } else if (typeof value === "boolean") {
                     return value;
                 } else if (value instanceof Date) {
