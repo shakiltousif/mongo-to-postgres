@@ -26,13 +26,22 @@ async function createPGTables() {
         const sampleDoc = await model.findOne().lean();
         if (!sampleDoc) continue; // Skip if collection is empty
 
-        // Ensure base table exists
+        // // Ensure base table exists
+        // let createTableQuery = `
+        //     CREATE TABLE IF NOT EXISTS ${collection} (
+        //         id SERIAL PRIMARY KEY,
+        //         mongo_id TEXT UNIQUE
+        //     );
+        // `;
+
+        const tableName = `"${collection.toLowerCase()}"`;  // Ensure table names are safely quoted
         let createTableQuery = `
-            CREATE TABLE IF NOT EXISTS ${collection} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 id SERIAL PRIMARY KEY,
                 mongo_id TEXT UNIQUE
             );
         `;
+
         await pgClient.query(createTableQuery);
 
         // Get existing columns in PostgreSQL
@@ -51,7 +60,9 @@ async function createPGTables() {
                 typeof value === "boolean" ? "BOOLEAN" :
                     "TEXT"; // Default to TEXT
 
-            const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
+            // const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
+            const alterTableQuery = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
+
             await pgClient.query(alterTableQuery);
             console.log(`✅ Added missing column: ${key} in ${collection}`);
         }
@@ -81,12 +92,20 @@ async function migrateInitialData() {
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
             const values = [mongoId, ...Object.values(doc)];
 
+            // const insertQuery = `
+            //     INSERT INTO ${collection} (${columns.join(", ")})
+            //     VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
+            //     ON CONFLICT (mongo_id) DO UPDATE
+            //     SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
+            // `;
+            const tableName = `"${collection.toLowerCase()}"`;  // Ensure table names are safely quoted
             const insertQuery = `
-                INSERT INTO ${collection} (${columns.join(", ")})
+                INSERT INTO ${tableName} (${columns.join(", ")})
                 VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
                 ON CONFLICT (mongo_id) DO UPDATE
                 SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
             `;
+
 
             await pgClient.query(insertQuery, values);
         }
@@ -121,12 +140,20 @@ async function pollForChanges() {
                 const values = [mongoId, ...Object.values(doc)];
 
                 // Construct insert query
+                // const insertQuery = `
+                //     INSERT INTO ${collection} (${columns.join(", ")})
+                //     VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
+                //     ON CONFLICT (mongo_id) DO UPDATE
+                //     SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
+                // `;
+                const tableName = `"${collection.toLowerCase()}"`;  // Ensure table names are safely quoted
                 const insertQuery = `
-                    INSERT INTO ${collection} (${columns.join(", ")})
+                    INSERT INTO ${tableName} (${columns.join(", ")})
                     VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
                     ON CONFLICT (mongo_id) DO UPDATE
                     SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
                 `;
+
 
                 await pgClient.query(insertQuery, values);
             }
