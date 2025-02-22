@@ -133,7 +133,9 @@ async function migrateInitialData() {
                 SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
             `;
 
-
+            console.log(`🔍 Inserting data into table "${collection}"`);
+            console.log("Columns:", columns);
+            console.log("Values:", sanitizedValues);
             await pgClient.query(insertQuery, sanitizedValues);
         }
 
@@ -195,7 +197,9 @@ async function pollForChanges() {
                     SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
                 `;
 
-
+                console.log(`🔍 Inserting data into table "${collection}"`);
+                console.log("Columns:", columns);
+                console.log("Values:", sanitizedValues);
                 await pgClient.query(insertQuery, sanitizedValues);
             }
         }
