@@ -62,12 +62,15 @@ async function createPGTables() {
 
             let columnType;
             if (typeof value === "number") {
-                columnType = Number.isInteger(value) ? "INTEGER" : "NUMERIC";
+                columnType = Number.isInteger(value) && value < Number.MAX_SAFE_INTEGER ? "INTEGER" : "BIGINT";
             } else if (typeof value === "boolean") {
                 columnType = "BOOLEAN";
+            } else if (typeof value === "string" && value.match(/^[0-9a-fA-F-]+$/)) { // Detect UUID-like strings
+                columnType = "TEXT"; // Store UUIDs or unique keys as TEXT
             } else {
-                columnType = "TEXT"; // Default to TEXT for unknown types
+                columnType = "TEXT"; // Default fallback
             }
+
 
 
             // const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
@@ -101,15 +104,17 @@ async function migrateInitialData() {
             // Construct INSERT query
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
             // const values = [mongoId, ...Object.values(doc)];
-            const sanitizedValues = [mongoId, ...Object.values(doc).map(value => {
+            const sanitizedValues = [mongoId, ...Object.entries(doc).map(([key, value]) => {
                 if (typeof value === "number") {
-                    return Number.isInteger(value) ? parseInt(value, 10) : parseFloat(value);
+                    return Number.isInteger(value) && value < Number.MAX_SAFE_INTEGER ? parseInt(value, 10) : parseFloat(value);
                 } else if (typeof value === "boolean") {
-                    return value; // Keep booleans as is
+                    return value;
                 } else if (value instanceof Date) {
-                    return value.toISOString(); // Convert Date to ISO string
+                    return value.toISOString();
+                } else if (typeof value === "string" && value.match(/^[0-9a-fA-F-]+$/)) { // Convert UUID-like values
+                    return value;
                 } else {
-                    return String(value); // Convert everything else to string
+                    return String(value);
                 }
             })];
 
@@ -160,13 +165,15 @@ async function pollForChanges() {
                 // Prepare column names and values dynamically
                 const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
                 // const values = [mongoId, ...Object.values(doc)];
-                const sanitizedValues = [mongoId, ...Object.values(doc).map(value => {
+                const sanitizedValues = [mongoId, ...Object.entries(doc).map(([key, value]) => {
                     if (typeof value === "number") {
-                        return Number.isInteger(value) ? parseInt(value, 10) : parseFloat(value);
+                        return Number.isInteger(value) && value < Number.MAX_SAFE_INTEGER ? parseInt(value, 10) : parseFloat(value);
                     } else if (typeof value === "boolean") {
                         return value;
                     } else if (value instanceof Date) {
                         return value.toISOString();
+                    } else if (typeof value === "string" && value.match(/^[0-9a-fA-F-]+$/)) { // Convert UUID-like values
+                        return value;
                     } else {
                         return String(value);
                     }
