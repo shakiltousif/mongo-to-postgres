@@ -6,7 +6,7 @@ async function getMongoCollections() {
         throw new Error("MongoDB connection is not established");
     }
 
-    const collections = await mongoDB.db.listCollections().toArray();
+    const collections = await mongoDB.db.listCollections({}, { nameOnly: true }).toArray();
     console.log("✅ MongoDB Collections:", collections.map(col => col.name));
     return collections.map(col => col.name);
 }
@@ -23,8 +23,13 @@ async function createPGTables() {
         }
 
         // Fetch one sample document to detect fields
-        const sampleDoc = await model.findOne().lean();
-        if (!sampleDoc) continue; // Skip if collection is empty
+        let sampleDoc = await model.findOne().lean();
+        if (!sampleDoc) {
+            console.log(`⚠️ Collection "${collection}" is empty. Creating table with default structure.`);
+            sampleDoc = {}; // Create an empty object to trigger table creation
+            continue;
+        }
+
 
         // // Ensure base table exists
         // let createTableQuery = `
@@ -51,6 +56,15 @@ async function createPGTables() {
         `);
 
         const existingColumns = existingColumnsRes.rows.map(row => row.column_name);
+        const columnTypesRes = await pgClient.query(`
+            SELECT column_name, data_type FROM information_schema.columns
+            WHERE table_name = '${collection}';
+        `);
+        const columnTypes = {};
+        columnTypesRes.rows.forEach(row => {
+            columnTypes[row.column_name] = row.data_type;
+        });
+
 
         // Add missing columns dynamically
         for (const [key, value] of Object.entries(sampleDoc)) {
@@ -119,17 +133,44 @@ async function migrateInitialData() {
             // Construct INSERT query
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
             // const values = [mongoId, ...Object.values(doc)];
+            // Fetch existing columns from PostgreSQL
+            const existingColumnsRes = await pgClient.query(`
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = '${collection}';
+            `);
+            const existingColumns = existingColumnsRes.rows.map(row => row.column_name);
+
+            // Fetch column data types
+            const columnTypesRes = await pgClient.query(`
+                SELECT column_name, data_type FROM information_schema.columns
+                WHERE table_name = '${collection}';
+            `);
+            const columnTypes = {};
+            columnTypesRes.rows.forEach(row => {
+                columnTypes[row.column_name] = row.data_type;
+            });
+
+            // Process data before inserting
             const sanitizedValues = [mongoId, ...Object.entries(doc).map(([key, value]) => {
                 if (typeof value === "number") {
-                    return Number.isInteger(value) && value > 2147483647 ? BigInt(value) : value;
+                    return Number.isInteger(value) && value < Number.MAX_SAFE_INTEGER ? parseInt(value, 10) : parseFloat(value);
                 } else if (typeof value === "boolean") {
                     return value;
                 } else if (value instanceof Date) {
                     return value.toISOString();
+                } else if (typeof value === "string") {
+                    if (value.trim() === "") {
+                        if (existingColumns.includes(key) && columnTypes[key] === "BOOLEAN") {
+                            return null; // Convert empty string to NULL for BOOLEAN fields
+                        }
+                        return null; // Convert all empty strings to NULL to avoid invalid syntax
+                    }
+                    return value;
                 } else {
                     return String(value);
                 }
             })];
+
 
 
             // const insertQuery = `
@@ -158,10 +199,10 @@ async function migrateInitialData() {
 
 
 async function pollForChanges() {
-    const collections = await getMongoCollections();
-
     setInterval(async () => {
         console.log("🔄 Checking for changes...");
+
+        const collections = await getMongoCollections(); // Fetch collections dynamically
 
         for (const collection of collections) {
             let model;
@@ -178,8 +219,26 @@ async function pollForChanges() {
                 delete doc._id; // Remove _id from document
 
                 // Prepare column names and values dynamically
-                const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
-                // const values = [mongoId, ...Object.values(doc)];
+                const columns = ['mongo_id', ...Object.keys(doc).map(key => `${key && key !== "" ? `"${key}"` : ""}`)];
+
+                // Fetch existing columns from PostgreSQL
+                const existingColumnsRes = await pgClient.query(`
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = '${collection}';
+                `);
+
+                const existingColumns = existingColumnsRes.rows.map(row => row.column_name);
+
+                // Fetch column data types
+                const columnTypesRes = await pgClient.query(`
+                    SELECT column_name, data_type FROM information_schema.columns
+                    WHERE table_name = '${collection}';
+                `);
+                const columnTypes = {};
+                columnTypesRes.rows.forEach(row => {
+                    columnTypes[row.column_name] = row.data_type;
+                });
+
                 const sanitizedValues = [mongoId, ...Object.entries(doc).map(([key, value]) => {
                     if (typeof value === "number") {
                         return Number.isInteger(value) && value < Number.MAX_SAFE_INTEGER ? parseInt(value, 10) : parseFloat(value);
@@ -187,7 +246,13 @@ async function pollForChanges() {
                         return value;
                     } else if (value instanceof Date) {
                         return value.toISOString();
-                    } else if (typeof value === "string" && value.match(/^[0-9a-fA-F-]+$/)) { // Convert UUID-like values
+                    } else if (typeof value === "string") {
+                        if (value.trim() === "") {
+                            if (existingColumns.includes(key) && columnTypes[key] === "BOOLEAN") {
+                                return null; // Convert empty string to NULL for BOOLEAN fields
+                            }
+                            return null; // Convert all empty strings to NULL to avoid invalid syntax
+                        }
                         return value;
                     } else {
                         return String(value);
@@ -195,13 +260,11 @@ async function pollForChanges() {
                 })];
 
 
+
+                // Ensure table exists before inserting data
+                await createPGTables();
+
                 // Construct insert query
-                // const insertQuery = `
-                //     INSERT INTO ${collection} (${columns.join(", ")})
-                //     VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
-                //     ON CONFLICT (mongo_id) DO UPDATE
-                //     SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
-                // `;
                 const tableName = `"${collection.toLowerCase()}"`;  // Ensure table names are safely quoted
                 const insertQuery = `
                     INSERT INTO ${tableName} (${columns.join(", ")})
@@ -221,6 +284,7 @@ async function pollForChanges() {
 
     }, 5000);  // Check for updates every 5 seconds
 }
+
 
 
 
