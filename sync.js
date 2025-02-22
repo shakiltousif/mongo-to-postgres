@@ -15,47 +15,21 @@ async function createPGTables() {
     const collections = await getMongoCollections();
 
     for (const collection of collections) {
-        let model;
-        try {
-            model = mongoose.model(collection);
-        } catch (error) {
-            model = mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
-        }
+        const tableName = `"${collection}"`; // Wrap table name in double quotes
 
-        // Fetch one sample document to detect fields
-        const sampleDoc = await model.findOne().lean();
-        if (!sampleDoc) continue; // Skip if collection is empty
-
-        // Ensure base table exists
-        let createTableQuery = `
-            CREATE TABLE IF NOT EXISTS ${collection} (
+        // Create table with unique mongo_id column
+        const createTableQuery = `
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 id SERIAL PRIMARY KEY,
                 mongo_id TEXT UNIQUE
             );
         `;
         await pgClient.query(createTableQuery);
 
-        // Get existing columns in PostgreSQL
-        const existingColumnsRes = await pgClient.query(`
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = '${collection}';
-        `);
-        const existingColumns = existingColumnsRes.rows.map(row => row.column_name);
-
-        // Add missing columns dynamically
-        for (const [key, value] of Object.entries(sampleDoc)) {
-            if (key === "_id" || existingColumns.includes(key)) continue; // Skip _id & existing columns
-
-            let columnType = typeof value === "number" ? "NUMERIC" :
-                typeof value === "boolean" ? "BOOLEAN" :
-                    "TEXT"; // Default to TEXT
-
-            const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
-            await pgClient.query(alterTableQuery);
-            console.log(`✅ Added missing column: ${key} in ${collection}`);
-        }
+        console.log(`✅ Table ensured: ${collection}`);
     }
 }
+
 
 
 
