@@ -24,7 +24,7 @@ services:
     depends_on:
       - postgres
     environment:
-      MONGO_URI: "mongodb://localhost:27017/tdrive"
+      MONGO_URI: "mongodb://mongo:27017/tdrive"
       PG_URI: "postgresql://user:password@postgres:5432/tdrive"
       PG_ADMIN_URI: "postgresql://user:password@postgres:5432/postgres"
       PG_DB: "tdrive"
