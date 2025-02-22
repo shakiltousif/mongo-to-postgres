@@ -15,30 +15,6 @@ async function createPGTables() {
     const collections = await getMongoCollections();
 
     for (const collection of collections) {
-        const tableName = `"${collection}"`; // Wrap table name in double quotes
-
-        // Create table with unique mongo_id column
-        const createTableQuery = `
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-                id SERIAL PRIMARY KEY,
-                mongo_id TEXT UNIQUE
-            );
-        `;
-        await pgClient.query(createTableQuery);
-
-        console.log(`✅ Table ensured: ${collection}`);
-    }
-}
-
-
-
-
-async function migrateInitialData() {
-    const collections = await getMongoCollections();
-
-    for (const collection of collections) {
-        const tableName = `"${collection}"`; // Quote the table name
-
         let model;
         try {
             model = mongoose.model(collection);
@@ -46,19 +22,66 @@ async function migrateInitialData() {
             model = mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
         }
 
+        // Fetch one sample document to detect fields
+        const sampleDoc = await model.findOne().lean();
+        if (!sampleDoc) continue; // Skip if collection is empty
+
+        // Ensure base table exists
+        let createTableQuery = `
+            CREATE TABLE IF NOT EXISTS ${collection} (
+                id SERIAL PRIMARY KEY,
+                mongo_id TEXT UNIQUE
+            );
+        `;
+        await pgClient.query(createTableQuery);
+
+        // Get existing columns in PostgreSQL
+        const existingColumnsRes = await pgClient.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = '${collection}';
+        `);
+        const existingColumns = existingColumnsRes.rows.map(row => row.column_name);
+
+        // Add missing columns dynamically
+        for (const [key, value] of Object.entries(sampleDoc)) {
+            if (key === "_id" || existingColumns.includes(key)) continue; // Skip _id & existing columns
+
+            let columnType = typeof value === "number" ? "NUMERIC" :
+                typeof value === "boolean" ? "BOOLEAN" :
+                    "TEXT"; // Default to TEXT
+
+            const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
+            await pgClient.query(alterTableQuery);
+            console.log(`✅ Added missing column: ${key} in ${collection}`);
+        }
+    }
+}
+
+
+
+async function migrateInitialData() {
+    const collections = await getMongoCollections();
+
+    for (const collection of collections) {
+        let model;
+        try {
+            model = mongoose.model(collection); // Check if model already exists
+        } catch (error) {
+            model = mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
+        }
+
         const documents = await model.find().lean();
-        if (documents.length === 0) continue; // Skip empty collections
 
         for (const doc of documents) {
             const mongoId = doc._id.toString();
-            delete doc._id;
+            delete doc._id; // Remove _id to avoid duplicate fields
 
-            // Prepare query dynamically
+            // Construct INSERT query
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
             const values = [mongoId, ...Object.values(doc)];
 
             const insertQuery = `
-                INSERT INTO ${tableName} (${columns.join(", ")})
+                INSERT INTO ${collection} (${columns.join(", ")})
                 VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
                 ON CONFLICT (mongo_id) DO UPDATE
                 SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
@@ -70,7 +93,6 @@ async function migrateInitialData() {
         console.log(`✅ Data migrated: ${collection} (${documents.length} records)`);
     }
 }
-
 
 
 async function pollForChanges() {
