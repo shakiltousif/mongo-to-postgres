@@ -30,6 +30,7 @@ services:
       PG_DB: "tdrive"
     networks:
       - app_network
+      - mongo_network
 
 volumes:
   postgres_data:
