@@ -61,22 +61,35 @@ async function createPGTables() {
             //         "TEXT"; // Default to TEXT
 
             let columnType;
-            if (typeof value === "number") {
+            if (key.toLowerCase() === "id") {
+                columnType = "TEXT"; // Ensure all "id" fields are TEXT (Fix for UUIDs)
+            } else if (typeof value === "number") {
                 columnType = Number.isInteger(value) && value < Number.MAX_SAFE_INTEGER ? "INTEGER" : "BIGINT";
             } else if (typeof value === "boolean") {
                 columnType = "BOOLEAN";
-            } else if (typeof value === "string" && value.match(/^[0-9a-fA-F-]+$/)) { // Detect UUID-like strings
-                columnType = "TEXT"; // Store UUIDs or unique keys as TEXT
             } else {
                 columnType = "TEXT"; // Default fallback
             }
 
 
 
-            // const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
-            const alterTableQuery = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
 
+            // const alterTableQuery = `ALTER TABLE ${collection} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
+            if (key.toLowerCase() === "id") {
+                // Ensure id columns are converted to TEXT in existing tables
+                const alterIdColumnQuery = `ALTER TABLE ${tableName} ALTER COLUMN "${key}" TYPE TEXT USING "${key}"::TEXT;`;
+                try {
+                    await pgClient.query(alterIdColumnQuery);
+                    console.log(`✅ Converted "id" column to TEXT in ${tableName}`);
+                } catch (alterError) {
+                    console.warn(`⚠️ Could not alter "id" column in ${tableName}:`, alterError.message);
+                }
+            }
             await pgClient.query(alterTableQuery);
+
+            // const alterTableQuery = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
+
+            // await pgClient.query(alterTableQuery);
             console.log(`✅ Added missing column: ${key} in ${collection}`);
         }
     }
@@ -105,14 +118,14 @@ async function migrateInitialData() {
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
             // const values = [mongoId, ...Object.values(doc)];
             const sanitizedValues = [mongoId, ...Object.entries(doc).map(([key, value]) => {
-                if (typeof value === "number") {
+                if (key.toLowerCase() === "id") {
+                    return String(value); // Ensure "id" is always a string (Fix for UUIDs)
+                } else if (typeof value === "number") {
                     return Number.isInteger(value) && value < Number.MAX_SAFE_INTEGER ? parseInt(value, 10) : parseFloat(value);
                 } else if (typeof value === "boolean") {
                     return value;
                 } else if (value instanceof Date) {
                     return value.toISOString();
-                } else if (typeof value === "string" && value.match(/^[0-9a-fA-F-]+$/)) { // Convert UUID-like values
-                    return value;
                 } else {
                     return String(value);
                 }
