@@ -37,7 +37,7 @@ async function createPGTables() {
         const tableName = `"${collection.toLowerCase()}"`;  // Ensure table names are safely quoted
         let createTableQuery = `
             CREATE TABLE IF NOT EXISTS ${tableName} (
-                id SERIAL PRIMARY KEY,
+                __id SERIAL PRIMARY KEY,
                 mongo_id TEXT UNIQUE
             );
         `;
