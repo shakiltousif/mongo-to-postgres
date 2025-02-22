@@ -15,8 +15,7 @@ async function createPGTables() {
     const collections = await getMongoCollections();
 
     for (const collection of collections) {
-        // Sanitize table name (convert to lowercase & quote it)
-        const tableName = `"${collection.toLowerCase()}"`;
+        const tableName = `"${collection.toLowerCase()}"`; // Ensure proper quoting & lowercase names
 
         let model;
         try {
@@ -53,6 +52,7 @@ async function createPGTables() {
                 typeof value === "boolean" ? "BOOLEAN" :
                     "TEXT"; // Default to TEXT
 
+            // Ensure correct table alteration
             const alterTableQuery = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`;
             await pgClient.query(alterTableQuery);
             console.log(`✅ Added missing column: ${key} in ${tableName}`);
@@ -60,15 +60,11 @@ async function createPGTables() {
     }
 }
 
-
-
-
 async function migrateInitialData() {
     const collections = await getMongoCollections();
 
     for (const collection of collections) {
-        // Sanitize table name (convert to lowercase & quote it)
-        const tableName = `"${collection.toLowerCase()}"`;
+        const tableName = `"${collection.toLowerCase()}"`; // Ensure proper quoting & lowercase names
 
         let model;
         try {
@@ -80,9 +76,28 @@ async function migrateInitialData() {
         const documents = await model.find().lean();
         if (documents.length === 0) continue; // Skip empty collections
 
+        // Get existing columns
+        const existingColumnsRes = await pgClient.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = ${tableName};
+        `);
+        const existingColumns = existingColumnsRes.rows.map(row => row.column_name);
+
         for (const doc of documents) {
             const mongoId = doc._id.toString();
             delete doc._id;
+
+            // Add missing columns dynamically before inserting
+            for (const key of Object.keys(doc)) {
+                if (!existingColumns.includes(key)) {
+                    let columnType = typeof doc[key] === "number" ? "NUMERIC" :
+                        typeof doc[key] === "boolean" ? "BOOLEAN" :
+                            "TEXT";
+                    await pgClient.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`);
+                    existingColumns.push(key); // Update list to prevent duplicate ALTER queries
+                    console.log(`✅ Added column: ${key} to ${tableName}`);
+                }
+            }
 
             // Prepare query dynamically
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
@@ -111,7 +126,6 @@ async function pollForChanges() {
         console.log("🔄 Checking for changes...");
 
         for (const collection of collections) {
-            // Sanitize table name (convert to lowercase & quote it)
             const tableName = `"${collection.toLowerCase()}"`;
 
             let model;
@@ -123,9 +137,28 @@ async function pollForChanges() {
 
             const latestDocs = await model.find().lean();
 
+            // Get existing columns
+            const existingColumnsRes = await pgClient.query(`
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = ${tableName};
+            `);
+            const existingColumns = existingColumnsRes.rows.map(row => row.column_name);
+
             for (const doc of latestDocs) {
                 const mongoId = doc._id.toString();
                 delete doc._id; // Remove _id from document
+
+                // Add missing columns dynamically
+                for (const key of Object.keys(doc)) {
+                    if (!existingColumns.includes(key)) {
+                        let columnType = typeof doc[key] === "number" ? "NUMERIC" :
+                            typeof doc[key] === "boolean" ? "BOOLEAN" :
+                                "TEXT";
+                        await pgClient.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS "${key}" ${columnType};`);
+                        existingColumns.push(key);
+                        console.log(`✅ Added column: ${key} to ${tableName}`);
+                    }
+                }
 
                 // Prepare column names and values dynamically
                 const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
@@ -147,6 +180,7 @@ async function pollForChanges() {
 
     }, 5000);  // Check for updates every 5 seconds
 }
+
 
 
 
