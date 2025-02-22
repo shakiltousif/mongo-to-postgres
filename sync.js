@@ -37,25 +37,28 @@ async function migrateInitialData() {
     const collections = await getMongoCollections();
 
     for (const collection of collections) {
+        const tableName = `"${collection}"`; // Quote the table name
+
         let model;
         try {
-            model = mongoose.model(collection); // Check if model already exists
+            model = mongoose.model(collection);
         } catch (error) {
             model = mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
         }
 
         const documents = await model.find().lean();
+        if (documents.length === 0) continue; // Skip empty collections
 
         for (const doc of documents) {
             const mongoId = doc._id.toString();
-            delete doc._id; // Remove _id to avoid duplicate fields
+            delete doc._id;
 
-            // Construct INSERT query
+            // Prepare query dynamically
             const columns = ['mongo_id', ...Object.keys(doc).map(key => `"${key}"`)];
             const values = [mongoId, ...Object.values(doc)];
 
             const insertQuery = `
-                INSERT INTO ${collection} (${columns.join(", ")})
+                INSERT INTO ${tableName} (${columns.join(", ")})
                 VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
                 ON CONFLICT (mongo_id) DO UPDATE
                 SET ${Object.keys(doc).map(key => `"${key}" = EXCLUDED."${key}"`).join(", ")};
@@ -67,6 +70,7 @@ async function migrateInitialData() {
         console.log(`✅ Data migrated: ${collection} (${documents.length} records)`);
     }
 }
+
 
 
 async function pollForChanges() {
